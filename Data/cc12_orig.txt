@@ -1,0 +1,12 @@
+CC0003_philips_15_63_F.nii.gz
+CC0004_philips_15_67_M.nii.gz
+CC0060_philips_3_29_M.nii.gz
+CC0080_philips_3_55_F.nii.gz
+CC0120_siemens_15_58_F.nii.gz
+CC0121_siemens_15_61_M.nii.gz
+CC0180_siemens_3_39_F.nii.gz
+CC0181_siemens_3_36_F.nii.gz
+CC0240_ge_15_60_F.nii.gz
+CC0276_ge_15_52_M.nii.gz
+CC0300_ge_3_58_M.nii.gz
+CC0305_ge_3_59_M.nii.gz
