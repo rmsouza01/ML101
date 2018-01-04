@@ -3,11 +3,9 @@ import numpy as np
 import os
 import natsort as ns
 import dicom
-import siamxt
 from scipy.ndimage import morphological_gradient,sobel
 from scipy.ndimage.morphology import binary_erosion
 from skimage import feature
-import iaws
 import nibabel as nib
 
 def dice_coefficient(A,B):
@@ -285,154 +283,6 @@ class Tracker: #(object):
       self.im.set_data(self.X[:, :, self.ind])
       self.ax.set_title('slice %s' % self.ind)
       self.im.axes.figure.canvas.draw()
-
-class CarSegmentation:
-   def __init__(self,img,Bc,period = 1,window_dims = (50,50),\
-                area_bounds = (35,100),area_open = 8,max_radius = 10):
-      self.img = img.astype(np.uint16)
-      self.int_marker = np.zeros_like(img)
-      self.ext_marker = np.zeros_like(img)
-      self.ext_marker_circle = np.zeros_like(img)
-      self.seg = np.zeros_like(img)
-      self.centroids = []
-      self.tz_ws = np.zeros_like(img)
-      self.seg = np.zeros_like(img)   
-      self.Bc = Bc
-      self.period = period
-      self.fig, self.ax = [],[]
-      self.tracker = []
-      self.half_height,self.half_width = window_dims[0]/2,window_dims[1]/2
-      self.a_min,self.a_max = area_bounds
-      self.area_open = area_open
-      self.int_counter = 0
-      self.ext_counter = 0
-      self.ext02_counter = 0
-      self.tz_ws_counter = 0
-      self.max_radius = max_radius
-   def displayImage(self):
-      if self.fig == [] and self.ax == []:
-         self.fig, self.ax = plt.subplots(1, 1)
-         self.tracker = Tracker(self.ax,self.img)
-         
-      cid01 = self.fig.canvas.mpl_connect('key_press_event', self.tracker.key_event)
-      cid02 = self.fig.canvas.mpl_connect('button_press_event', self.tracker.onclick)
-      plt.show()
-        
-   def internalMarker(self):
-      for ii in xrange(self.int_counter,len(self.tracker.seeds)):
-         seed = self.tracker.seeds[ii]
-         zstart = seed[2]- seed[2]%self.period 
-         zend = zstart + self.period
-         for jj in xrange(zstart,zend):
-            x,y = int(seed[1]),int(seed[0])
-            #Pending: to test for borders
-            cslice = self.img[x-self.half_height:x+self.half_height,\
-                              y-self.half_width:y+self.half_width,\
-                              jj].copy()
-            #Min-tree
-            mxt = siamxt.MaxTreeAlpha(cslice.max()- cslice,self.Bc)
-            node = mxt.node_index[self.half_height,self.half_width]
-            node = int(mxt.getDescendants(int(node))[-1])
-            anc_node = mxt.getAncestors(node)
-            area = mxt.node_array[3,anc_node]
-            indexes = np.logical_or(area<self.a_min,area>self.a_max)
-            area[indexes] = 0
-            marker_node = anc_node[area.argmax()]
-            marker = mxt.recConnectedComponent(marker_node)
-            marker = binary_erosion(marker>0, \
-                     structure=self.Bc).astype(marker.dtype)
-            self.int_marker[x-self.half_height:x+self.half_height,\
-                            y-self.half_width:y+self.half_width,jj] = \
-                            marker
-            
-            cx = x-self.half_height + \
-            1.0*mxt.node_array[5,marker_node]/mxt.node_array[3,marker_node]
-            cy = y-self.half_width + \
-            1.0*mxt.node_array[8,marker_node]/mxt.node_array[3,marker_node]
-            self.centroids.append((cx,cy,jj))  
-      self.int_counter  =len(self.tracker.seeds)
-      
-   def externalMarker(self):
-      for coords in self.centroids[self.ext_counter:]:
-         x,y,z = int(coords[0]),int(coords[1]),coords[2]
-         
-         #Pending: to test for borders
-         cslice = self.img[x-self.half_height:x+self.half_height,\
-                              y-self.half_width:y+self.half_width,\
-                              z].copy()
-            
-         #Max-tree of the morphological gradient image
-         cslice_grad = morphological_gradient(cslice, size=(3,3))
-                
-         mxt = siamxt.MaxTreeAlpha(cslice_grad,self.Bc)
-         mxt.areaOpen(self.area_open)
-         centroid = mxt.computeNodeCentroid()
-         centroid[mxt.node_array[3,:] > 25] = np.array([0,0])
-         center = np.array([self.half_height,self.half_height])        
-           
-         # Computing centroid distances            
-         dist_centr = (centroid - center)**2
-         dist_centr = dist_centr.sum(axis = 1)
-         # save time here?
-         dist_centr = np.sqrt(dist_centr)
-          
-         #First marker
-         dmin = dist_centr.argmin()
-         indexA = dmin #mxt.getBifAncestor(dmin)
-         #Second marker
-         dist_centr[mxt.getDescendants(indexA)] = 1e+6
-         dmin = dist_centr.argmin()
-         indexB = dmin #mxt.getBifAncestor(dmin)
-          
-         aux01 = mxt.recConnectedComponent(indexA)
-         aux02 = mxt.recConnectedComponent(indexB)
-         self.ext_marker[x-self.half_height:x+self.half_height,\
-                         y-self.half_width:y+self.half_width,z] = \
-                         np.logical_or(aux01>0,aux02>0)
-      self.ext_counter  =len(self.centroids)    
-                
-                                
-   def externalMarkerCircle(self):
-      for coords in self.centroids[self.ext02_counter:]:
-         x,y,z = int(coords[0]),int(coords[1]),coords[2]
-         center = np.array([x,y])
-         cslice = self.ext_marker[:,:,z]
-         (xc,yc) = np.nonzero(cslice)
-         index = np.concatenate((xc.reshape(-1,1),yc.reshape(-1,1)),axis = 1)
-         diff_circ= np.sqrt((np.abs(index - center)**2).sum(axis = 1))
-         radius = diff_circ[np.argmax(diff_circ)]
-         final_radius = 1.25*radius
-         if final_radius > self.max_radius:
-            final_radius = self.max_radius 
-         circle = bin_circle(cslice.shape,center,final_radius)
-         self.ext_marker_circle[:,:,z] = np.logical_or(\
-                                         circle,self.ext_marker_circle[:,:,z])
-      self.ext02_counter = len(self.centroids)                             
-
-    
-   def tzWatershed(self):
-      for coords in self.centroids[self.tz_ws_counter:]:
-         x,y,z = int(coords[0]),int(coords[1]),coords[2]
-         #Pending: to test for borders
-         cslice = self.img[x-self.half_height:x+self.half_height,\
-                              y-self.half_width:y+self.half_width,\
-                              z].copy()
-         cslice_grad = morphological_gradient(cslice, size=(3,3))
-         
-         markers = self.int_marker[x-self.half_height:x+self.half_height,\
-                              y-self.half_width:y+self.half_width,\
-                              z].copy() + 2*self.ext_marker_circle[x-self.half_height:x+self.half_height,y-self.half_width:y+self.half_width,\
-                              z].copy()
-         seg = iaws.tz_ws(cslice_grad,markers,self.Bc)
-         self.tz_ws[x-self.half_height:x+self.half_height,\
-                              y-self.half_width:y+self.half_width,\
-                              z] = 1*(seg==1) + 2*(seg == 0)
-      self.tz_ws_counter = len(self.centroids)                             
-
-
-
-
-
 
 def lbp(f):
    lbp_img = np.zeros(f.shape, dtype = np.uint8) 
