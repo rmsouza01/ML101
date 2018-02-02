@@ -2,7 +2,7 @@ import numpy as np
 import keras
 from keras import backend as K
 from keras.models import Model
-from keras.layers import Input, Conv2D, MaxPooling2D, concatenate
+from keras.layers import Input, Conv2D, MaxPooling2D, concatenate,add
 from keras.layers import UpSampling2D, Dropout 
 from keras.layers.noise import GaussianNoise
 from keras.optimizers import Adam
@@ -20,13 +20,13 @@ def dice_coef_loss(y_true, y_pred):
     return -dice_coef(y_true, y_pred)
 
 def get_unet_mod(patch_size = (None,None),learning_rate = 1e-5,\
-                 learning_decay = 1e-6,gn_std = 0.025, drop_out = 0.25):
+                 learning_decay = 1e-6,gn_std = 0.025, drop_out = 0.25,nchannels = 3):
     ''' Get U-Net model with gaussian noise and dropout'''
     
     gaussian_noise_std = gn_std
     dropout = drop_out
     
-    input_img = Input((patch_size[0], patch_size[1],3))
+    input_img = Input((patch_size[0], patch_size[1],nchannels))
     input_with_noise = GaussianNoise(gaussian_noise_std)(input_img)    
 
     conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(input_with_noise)
@@ -76,6 +76,67 @@ def get_unet_mod(patch_size = (None,None),learning_rate = 1e-5,\
     model.compile(optimizer= opt,loss=dice_coef_loss, metrics=[dice_coef])
 
     return model
+
+
+def get_unet_mod_reg(patch_size = (None,None),learning_rate = 1e-5,\
+                 learning_decay = 1e-6,gn_std = 0.025, drop_out = 0.25,nchannels = 3):
+    ''' Get U-Net model with gaussian noise and dropout for regression'''
+    
+    gaussian_noise_std = gn_std
+    dropout = drop_out
+    
+    input_img = Input((patch_size[0], patch_size[1],nchannels))
+    input_with_noise = GaussianNoise(gaussian_noise_std)(input_img)    
+
+    conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(input_with_noise)
+    conv1 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv1)
+    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+
+    conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(pool1)
+    conv2 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv2)
+    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+    
+    conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(pool2)
+    conv3 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv3)
+    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+    
+    conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(pool3)
+    conv4 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv4)
+    pool4 = MaxPooling2D(pool_size=(2, 2))(conv4)
+    pool4 = Dropout(dropout)(pool4)
+
+    conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(pool4)
+    conv5 = Conv2D(512, (3, 3), activation='relu', padding='same')(conv5)
+
+    up6 = concatenate([UpSampling2D(size=(2, 2))(conv5), conv4],axis=-1)
+    up6 = Dropout(dropout)(up6)
+    conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(up6)
+    conv6 = Conv2D(256, (3, 3), activation='relu', padding='same')(conv6)
+
+    up7 = concatenate([UpSampling2D(size=(2, 2))(conv6), conv3],axis=-1)
+    up7 = Dropout(dropout)(up7)
+    conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(up7)
+    conv7 = Conv2D(128, (3, 3), activation='relu', padding='same')(conv7)
+
+    up8 = concatenate([UpSampling2D(size=(2, 2))(conv7), conv2],axis=-1)
+    up8 = Dropout(dropout)(up8)
+    conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(up8)
+    conv8 = Conv2D(64, (3, 3), activation='relu', padding='same')(conv8)
+
+    up9 = concatenate([UpSampling2D(size=(2, 2))(conv8), conv1], axis=-1)
+    up9 = Dropout(dropout)(up9)
+    conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(up9)
+    conv9 = Conv2D(32, (3, 3), activation='relu', padding='same')(conv9)
+
+    conv10 = Conv2D(1, (1, 1), activation='linear')(conv9)
+    #out11 = add([input_img,conv10])
+    model = Model(inputs=input_img, outputs=conv10)
+    opt = Adam(lr= learning_rate, decay = learning_decay)
+    model.compile(optimizer= opt,loss='mean_absolute_error', metrics=['mean_absolute_error'])
+
+    return model
+
+
 
 def pad_images(samples,nmaxpooling = 4):
     """
