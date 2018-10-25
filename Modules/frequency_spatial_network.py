@@ -2,7 +2,7 @@ import numpy as np
 import keras
 from keras import backend as K
 from keras.models import Model
-from keras.layers import Input, Conv2D, Lambda,MaxPooling2D, concatenate, UpSampling2D,Add
+from keras.layers import Input, Conv2D, Lambda,MaxPooling2D, concatenate, UpSampling2D,Add, BatchNormalization
 
 def ifft_layer(kspace):
     real = Lambda(lambda kspace : kspace[:,:,:,0])(kspace)
@@ -38,7 +38,8 @@ def fs_rec_unet_norm_res(mu1,sigma1,mu2,sigma2,H=256,W=256,channels = 2,kshape =
     conv4 = Conv2D(256, kshape, activation='relu', padding='same')(pool3)
     conv4 = Conv2D(256, kshape, activation='relu', padding='same')(conv4)
     conv4 = Conv2D(256, kshape, activation='relu', padding='same')(conv4)
-    
+    conv4 = BatchNormalization()(conv4)
+
     up1 = concatenate([UpSampling2D(size=(2, 2))(conv4), conv3],axis=-1)
     conv5 = Conv2D(128, kshape, activation='relu', padding='same')(up1)
     conv5 = Conv2D(128, kshape, activation='relu', padding='same')(conv5)
@@ -79,8 +80,9 @@ def fs_rec_unet_norm_res(mu1,sigma1,mu2,sigma2,H=256,W=256,channels = 2,kshape =
     conv12 = Conv2D(256, kshape2, activation='relu', padding='same')(pool6)
     conv12 = Conv2D(256, kshape2, activation='relu', padding='same')(conv12)
     conv12 = Conv2D(256, kshape2, activation='relu', padding='same')(conv12)
+    conv12 = BatchNormalization()(conv12)
+
     up4 = concatenate([UpSampling2D(size=(2, 2))(conv12), conv11],axis=-1)
-    
     conv13 = Conv2D(128, kshape2, activation='relu', padding='same')(up4)
     conv13 = Conv2D(128, kshape2, activation='relu', padding='same')(conv13)
     conv13 = Conv2D(128, kshape2, activation='relu', padding='same')(conv13)
@@ -91,11 +93,54 @@ def fs_rec_unet_norm_res(mu1,sigma1,mu2,sigma2,H=256,W=256,channels = 2,kshape =
     conv14 = Conv2D(64, kshape2, activation='relu', padding='same')(conv14)
     
     up6 = concatenate([UpSampling2D(size=(2, 2))(conv14), conv9],axis=-1)
-    conv14 = Conv2D(48, kshape2, activation='relu', padding='same')(up6)
-    conv14 = Conv2D(48, kshape2, activation='relu', padding='same')(conv14)
-    conv14 = Conv2D(48, kshape2, activation='relu', padding='same')(conv14)
+    conv15 = Conv2D(48, kshape2, activation='relu', padding='same')(up6)
+    conv15 = Conv2D(48, kshape2, activation='relu', padding='same')(conv15)
+    conv15 = Conv2D(48, kshape2, activation='relu', padding='same')(conv15)
     
-    out = Conv2D(1, (1, 1), activation='linear')(conv14)
+    out = Conv2D(1, (1, 1), activation='linear')(conv15)
     model = Model(inputs=inputs, outputs=[res1_scaled,out])
+    return model
+
+def unet_rec(H=512,W=512,channels = 3,kshape = (3,3)):
+    inputs = Input(shape=(H,W,channels))
+    
+    conv1 = Conv2D(64, kshape, activation='relu', padding='same')(inputs)
+    conv1 = Conv2D(64, kshape, activation='relu', padding='same')(conv1)
+    conv1 = Conv2D(64, kshape, activation='relu', padding='same')(conv1)
+    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+    
+    conv2 = Conv2D(128, kshape, activation='relu', padding='same')(pool1)
+    conv2 = Conv2D(128, kshape, activation='relu', padding='same')(conv2)
+    conv2 = Conv2D(128, kshape, activation='relu', padding='same')(conv2)
+    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+    
+    conv3 = Conv2D(256, kshape, activation='relu', padding='same')(pool2)
+    conv3 = Conv2D(256, kshape, activation='relu', padding='same')(conv3)
+    conv3 = Conv2D(256, kshape, activation='relu', padding='same')(conv3)
+    pool3 = MaxPooling2D(pool_size=(2, 2))(conv3)
+    
+    conv4 = Conv2D(512, kshape, activation='relu', padding='same')(pool3)
+    conv4 = Conv2D(512, kshape, activation='relu', padding='same')(conv4)
+    conv4 = Conv2D(512, kshape, activation='relu', padding='same')(conv4)
+    
+    up1 = concatenate([UpSampling2D(size=(2, 2))(conv4), conv3],axis=-1)
+    conv5 = Conv2D(256, kshape, activation='relu', padding='same')(up1)
+    conv5 = Conv2D(256, kshape, activation='relu', padding='same')(conv5)
+    conv5 = Conv2D(256, kshape, activation='relu', padding='same')(conv5)
+    
+    up2 = concatenate([UpSampling2D(size=(2, 2))(conv5), conv2],axis=-1)
+    conv6 = Conv2D(128, kshape, activation='relu', padding='same')(up2)
+    conv6 = Conv2D(128, kshape, activation='relu', padding='same')(conv6)
+    conv6 = Conv2D(128, kshape, activation='relu', padding='same')(conv6)
+    
+    up3 = concatenate([UpSampling2D(size=(2, 2))(conv6), conv1],axis=-1)
+    conv7 = Conv2D(64, kshape, activation='relu', padding='same')(up3)
+    conv7 = Conv2D(64, kshape, activation='relu', padding='same')(conv7)
+    conv7 = Conv2D(64, kshape, activation='relu', padding='same')(conv7)
+    
+    conv8 = Conv2D(3, (1, 1), activation='linear')(conv7)
+    out = Add()([conv8,inputs])
+
+    model = Model(inputs=inputs, outputs=out)
     return model
 
